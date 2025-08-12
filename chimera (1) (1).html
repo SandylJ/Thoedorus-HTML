@@ -100,6 +100,20 @@
         .lodge-forest { position: relative; height: 220px; border: 1px dashed var(--border-color); border-radius: 12px; overflow: hidden; background: linear-gradient(to top, rgba(0,0,0,0.35), rgba(0,0,0,0.15)), radial-gradient(600px 200px at 20% 100%, rgba(34,139,34,0.35), transparent 60%), radial-gradient(600px 200px at 80% 110%, rgba(46,139,87,0.28), transparent 60%), linear-gradient(#062,#0a3); }
         .leaf { position: absolute; width: 10px; height: 10px; border-radius: 2px; background: rgba(63,185,80,0.9); filter: drop-shadow(0 0 6px rgba(63,185,80,0.5)); opacity: 0.9; animation: leaf-drift var(--dur, 6s) linear infinite; }
         @keyframes leaf-drift { 0% { transform: translateY(-20px) translateX(0) rotate(0deg); opacity: 0; } 10% { opacity: 1; } 100% { transform: translateY(260px) translateX(var(--dx, 60px)) rotate(220deg); opacity: 0; } }
+
+        /* Grove Pavilion visuals (Foraging) */
+        .grove-banner { position: relative; overflow: hidden; border: 1px solid var(--border-color); border-radius: 12px; background: linear-gradient(135deg, rgba(10,30,10,0.6), rgba(6,20,6,0.6)); }
+        .grove-banner::before { content: ""; position: absolute; inset: -20px; background: radial-gradient(400px 180px at 80% 20%, rgba(46,139,87,0.10), transparent 60%), radial-gradient(380px 200px at 10% 120%, rgba(34,139,34,0.08), transparent 50%); filter: blur(8px); }
+        .grove-canopy { position: relative; height: 220px; border: 1px dashed var(--border-color); border-radius: 12px; overflow: hidden; background: linear-gradient(to top, rgba(0,0,0,0.35), rgba(0,0,0,0.15)), radial-gradient(600px 200px at 15% 100%, rgba(34,139,34,0.30), transparent 60%), radial-gradient(600px 200px at 85% 110%, rgba(50,205,50,0.22), transparent 60%), linear-gradient(#063,#0a4); }
+        .spore { position: absolute; width: 8px; height: 8px; border-radius: 9999px; background: rgba(255,255,255,0.9); opacity: 0.7; filter: drop-shadow(0 0 6px rgba(255,255,255,0.4)); animation: spore-float var(--dur, 8s) ease-in infinite; }
+        @keyframes spore-float { 0% { transform: translateY(240px) translateX(0) scale(0.8); opacity: 0; } 8% { opacity: 1; } 100% { transform: translateY(-20px) translateX(var(--dx, 40px)) scale(1.1); opacity: 0; } }
+
+        /* Trapper's Grounds visuals (Hunting) */
+        .hunt-banner { position: relative; overflow: hidden; border: 1px solid var(--border-color); border-radius: 12px; background: linear-gradient(135deg, rgba(30,20,10,0.6), rgba(14,10,6,0.6)); }
+        .hunt-banner::before { content: ""; position: absolute; inset: -20px; background: radial-gradient(420px 160px at 20% 20%, rgba(139,69,19,0.08), transparent 60%), radial-gradient(420px 160px at 90% 80%, rgba(139,0,0,0.08), transparent 60%); filter: blur(8px); }
+        .hunt-grounds { position: relative; height: 220px; border: 1px dashed var(--border-color); border-radius: 12px; overflow: hidden; background: linear-gradient(to top, rgba(0,0,0,0.35), rgba(0,0,0,0.10)), radial-gradient(600px 200px at 20% 100%, rgba(139,69,19,0.25), transparent 60%), radial-gradient(600px 200px at 80% 110%, rgba(205,133,63,0.20), transparent 60%), linear-gradient(#320, #542); }
+        .critter { position: absolute; bottom: 8px; font-size: 22px; filter: drop-shadow(0 0 6px rgba(255,255,255,0.15)); animation: critter-walk var(--dur, 7s) linear infinite; }
+        @keyframes critter-walk { 0% { transform: translateX(-20%); opacity: 0; } 10% { opacity: 1; } 90% { opacity: 1; } 100% { transform: translateX(120%); opacity: 0; } }
     </style>
 </head>
 <body class="text-sm">
@@ -541,7 +555,10 @@
                             ws.progress[action.id] %= perCycleTime;
                             const totalQty = (action.output?.quantity || 0) * cycles * this.getWorkerYieldMultiplier(skillId, action);
                             if (action.output?.itemId && totalQty > 0) {
-                                this.addToBank(action.output.itemId, Math.floor(totalQty));
+                                const awarded = Math.floor(totalQty);
+                                this.addToBank(action.output.itemId, awarded);
+                                const itemName = GAME_DATA.ITEMS[action.output.itemId]?.name || action.output.itemId;
+                                this.uiManager.showFloatingText(`+${awarded} ${itemName}`, 'text-yellow-300');
                                 // Worker XP to player skill, reduced rate (50%)
                                 const xpGain = (action.xp || 0) * cycles * 0.5;
                                 this.state.player.skills[skillId].addXP(xpGain, this);
@@ -578,12 +595,14 @@
                 }
             }
 
-            startAction(skillId, actionId) {
+            startAction(skillId, actionId, durationMinutes) {
                 if (this.state.activeAction) return;
                 let actionData;
                 if (GAME_DATA.ACTIONS[skillId]) actionData = GAME_DATA.ACTIONS[skillId].find(a => a.id === actionId);
                 if (GAME_DATA.RECIPES[skillId]) actionData = GAME_DATA.RECIPES[skillId].find(a => a.id === actionId);
-                this.state.activeAction = { ...actionData, skillId: skillId, startTime: Date.now(), endTime: null, progress: 0 };
+                const hasDuration = typeof durationMinutes === 'number' && !isNaN(durationMinutes) && durationMinutes > 0;
+                const endTime = hasDuration ? (Date.now() + durationMinutes * 60 * 1000) : null;
+                this.state.activeAction = { ...actionData, skillId: skillId, startTime: Date.now(), endTime, progress: 0 };
                 this.uiManager.render();
             }
             stopAction() {
@@ -1016,9 +1035,13 @@
             renderSkillView(skillId) {
                 const skillData = GAME_DATA.SKILLS[skillId]; const playerSkill = this.game.state.player.skills[skillId]; let contentHtml = ''; let actionType = '';
                 if (skillData.type === 'gathering') {
-                    // Custom spectacular view for Timber Lodge (Woodcutting)
+                    // Custom spectacular views for gathering skills
                     if (skillId === 'woodcutting') {
                         return this.renderWoodcuttingView();
+                    } else if (skillId === 'foraging') {
+                        return this.renderForagingView();
+                    } else if (skillId === 'hunting') {
+                        return this.renderHuntingView();
                     }
                     actionType = 'Start'; contentHtml = (GAME_DATA.ACTIONS[skillId]||[]).map(action => this.renderActionCard(skillId, action, actionType)).join('');
                 }
@@ -1218,9 +1241,21 @@
                         if (isNaN(qty) || qty <= 0) return;
                         this.game.craftItem(s, a, Math.min(qty, maxQty));
                     } else {
-                        this.game.craftItem(s, a, 1);
+                        const recipe = (GAME_DATA.RECIPES[s] || []).find(r => r.id === a);
+                        if (!recipe) { this.game.craftItem(s, a, 1); return; }
+                        let maxQty = Infinity;
+                        for (const inp of (recipe.input || [])) {
+                            const have = this.game.state.bank[inp.itemId] || 0;
+                            const per = inp.quantity || 1;
+                            maxQty = Math.min(maxQty, Math.floor(have / per));
+                        }
+                        if (!isFinite(maxQty) || maxQty <= 0) return;
+                        const qty = parseInt(prompt(`How many to craft? (Max ${maxQty})`, `${Math.min(25, maxQty)}`), 10);
+                        if (isNaN(qty) || qty <= 0) return;
+                        this.game.craftItem(s, a, Math.min(qty, maxQty));
                     }
                 }); });
+                document.querySelectorAll('.stop-action-btn').forEach(btn => { btn.addEventListener('click', () => { this.game.stopAction(); }); });
 
                 // Runecrafting interactive altar handlers
                 const altar = document.getElementById('altar-dropzone');
@@ -1491,6 +1526,90 @@
                 return `
                     <h1 class="text-2xl font-semibold text-white mb-4">${skillData.name} <span class="text-base text-secondary">(Level ${playerSkill.level})</span></h1>
                     ${forest}
+                    ${workerPanel}
+                    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">${actionsHtml}</div>
+                `;
+            }
+
+            renderForagingView() {
+                const skillId = 'foraging';
+                const skillData = GAME_DATA.SKILLS[skillId];
+                const playerSkill = this.game.state.player.skills[skillId];
+                const actionsHtml = (GAME_DATA.ACTIONS[skillId] || []).map(a => this.renderActionCard(skillId, a, 'Start')).join('');
+                const workerPanel = this.renderWorkerPanelForSkill(skillId);
+                const grove = `
+                    <div class="block p-4 grove-banner mb-4">
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-center gap-3">
+                                <span class="text-2xl">🍃</span>
+                                <div>
+                                    <h2 class="text-xl font-bold text-white">Grove Pavilion</h2>
+                                    <p class="text-secondary text-sm">Herbs and fungi flourish under dappled light.</p>
+                                </div>
+                            </div>
+                            <span class="badge"><i class="fa-solid fa-seedling"></i> Level ${playerSkill.level}</span>
+                        </div>
+                        <div class="grove-canopy mt-3" id="grove-canopy"></div>
+                    </div>
+                `;
+                setTimeout(() => {
+                    const container = document.getElementById('grove-canopy');
+                    if (!container) return;
+                    for (let i = 0; i < 18; i++) {
+                        const sp = document.createElement('div');
+                        sp.className = 'spore';
+                        sp.style.left = `${Math.random()*100}%`;
+                        sp.style.setProperty('--dx', `${(Math.random()*80-40)}px`);
+                        sp.style.setProperty('--dur', `${6 + Math.random()*5}s`);
+                        container.appendChild(sp);
+                    }
+                }, 0);
+                return `
+                    <h1 class="text-2xl font-semibold text-white mb-4">${skillData.name} <span class="text-base text-secondary">(Level ${playerSkill.level})</span></h1>
+                    ${grove}
+                    ${workerPanel}
+                    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">${actionsHtml}</div>
+                `;
+            }
+
+            renderHuntingView() {
+                const skillId = 'hunting';
+                const skillData = GAME_DATA.SKILLS[skillId];
+                const playerSkill = this.game.state.player.skills[skillId];
+                const actionsHtml = (GAME_DATA.ACTIONS[skillId] || []).map(a => this.renderActionCard(skillId, a, 'Start')).join('');
+                const workerPanel = this.renderWorkerPanelForSkill(skillId);
+                const grounds = `
+                    <div class="block p-4 hunt-banner mb-4">
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-center gap-3">
+                                <span class="text-2xl">🏹</span>
+                                <div>
+                                    <h2 class="text-xl font-bold text-white">Trapper's Grounds</h2>
+                                    <p class="text-secondary text-sm">Snares and blinds line the woodland edge.</p>
+                                </div>
+                            </div>
+                            <span class="badge"><i class="fa-solid fa-paw"></i> Level ${playerSkill.level}</span>
+                        </div>
+                        <div class="hunt-grounds mt-3" id="hunt-grounds"></div>
+                    </div>
+                `;
+                setTimeout(() => {
+                    const container = document.getElementById('hunt-grounds');
+                    if (!container) return;
+                    const critters = ['🐇','🦊','🦌','🐦'];
+                    for (let i = 0; i < 10; i++) {
+                        const c = document.createElement('div');
+                        c.className = 'critter';
+                        c.textContent = critters[Math.floor(Math.random()*critters.length)];
+                        c.style.left = `${Math.random()*10 - 10}%`;
+                        c.style.bottom = `${6 + Math.random()*24}px`;
+                        c.style.setProperty('--dur', `${5 + Math.random()*4}s`);
+                        container.appendChild(c);
+                    }
+                }, 0);
+                return `
+                    <h1 class="text-2xl font-semibold text-white mb-4">${skillData.name} <span class="text-base text-secondary">(Level ${playerSkill.level})</span></h1>
+                    ${grounds}
                     ${workerPanel}
                     <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">${actionsHtml}</div>
                 `;
